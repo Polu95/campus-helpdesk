@@ -1,6 +1,8 @@
 import Complaint from "./complaint.model.js";
 import { cloudinary } from "../../config/cloudinary.js";
 
+
+// ✅ Create Complaint (UNCHANGED)
 export const createComplaint = async (req, res) => {
   try {
     const { title, description, category } = req.body;
@@ -9,7 +11,6 @@ export const createComplaint = async (req, res) => {
       return res.status(400).json({ message: "Image is required" });
     }
 
-    // Upload image to Cloudinary
     const result = await cloudinary.uploader.upload(req.file.path);
 
     const complaint = await Complaint.create({
@@ -26,33 +27,115 @@ export const createComplaint = async (req, res) => {
   }
 };
 
+
+// ✅ USER: Get My Complaints (UNCHANGED + SAFE)
 export const getMyComplaints = async (req, res) => {
   try {
-    const complaints = await Complaint.find({
-      createdBy: req.user._id,
-    }).sort({ createdAt: -1 });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const status = req.query.status || "All";
 
-    res.json(complaints);
+    const skip = (page - 1) * limit;
+
+    let query = { createdBy: req.user._id };
+
+    // ✅ FILTER IN BACKEND
+    if (status !== "All") {
+      query.status = status;
+    }
+
+    const complaints = await Complaint.find(query)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Complaint.countDocuments(query);
+
+    // ✅ counts (optional but good)
+    const pendingCount = await Complaint.countDocuments({
+      createdBy: req.user._id,
+      status: "Pending",
+    });
+
+    const inProgressCount = await Complaint.countDocuments({
+      createdBy: req.user._id,
+      status: "In Progress",
+    });
+
+    const resolvedCount = await Complaint.countDocuments({
+      createdBy: req.user._id,
+      status: "Resolved",
+    });
+
+    res.json({
+      complaints,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+      counts: {
+        pending: pendingCount,
+        inProgress: inProgressCount,
+        resolved: resolvedCount,
+      },
+    });
+
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// ✅ Admin: Get all complaints
+// ✅ ADMIN: Get All Complaints (UPDATED WITH COUNTS)
 export const getAllComplaints = async (req, res) => {
   try {
-    const complaints = await Complaint.find()
-      .populate("createdBy", "name email")
-      .sort({ createdAt: -1 });
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 5;
+    const status = req.query.status || "All";
 
-    res.json(complaints);
+    const skip = (page - 1) * limit;
+
+    let query = {};
+
+    if (status !== "All") {
+      query.status = status;
+    }
+
+    // ✅ Paginated data
+    const complaints = await Complaint.find(query)
+      .populate("createdBy", "name email")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    // ✅ Total count (based on filter)
+    const total = await Complaint.countDocuments(query);
+
+    // ✅ GLOBAL COUNTS (FIX YOUR ISSUE)
+    const pendingCount = await Complaint.countDocuments({ status: "Pending" });
+    const inProgressCount = await Complaint.countDocuments({ status: "In Progress" });
+    const resolvedCount = await Complaint.countDocuments({ status: "Resolved" });
+
+    res.json({
+      complaints,
+      total,
+      totalPages: Math.ceil(total / limit),
+      currentPage: page,
+
+      // ✅ NEW FIELD (VERY IMPORTANT)
+      counts: {
+        pending: pendingCount,
+        inProgress: inProgressCount,
+        resolved: resolvedCount
+      }
+    });
+
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: error.message });
   }
 };
 
 
-// ✅ Admin: Update status + comment
+// ✅ Update Complaint (UNCHANGED)
 export const updateComplaint = async (req, res) => {
   try {
     const { status, adminComment } = req.body;
@@ -63,7 +146,6 @@ export const updateComplaint = async (req, res) => {
       return res.status(404).json({ message: "Complaint not found" });
     }
 
-    // Only update specific fields
     if (status) complaint.status = status;
     if (adminComment) complaint.adminComment = adminComment;
 
@@ -71,6 +153,7 @@ export const updateComplaint = async (req, res) => {
 
     res.json(complaint);
   } catch (error) {
+    console.error(error);
     res.status(500).json({ message: error.message });
   }
 };
